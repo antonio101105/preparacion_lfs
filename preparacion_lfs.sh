@@ -1,22 +1,23 @@
 #!/bin/bash
-# Script de Preparación Fase 1 LFS (Optimizado para Debian 13)
+# Script de Preparación Fase 1 LFS (Optimizado para Debian 13 - VERSIÓN CORREGIDA)
 
-# Parada de emergencia ante cualquier error
-set -e
+set -e # Detener en caso de error
 
-# Comprobación de superusuario
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Error: Por favor, ejecuta este script como root (usando 'sudo ./preparacion_lfs.sh' o 'su -' previamente)."
+  echo "❌ Error: Por favor, ejecuta este script como root."
   exit 1
 fi
 
-# ==========================================
-# ⚠️ CONFIGURACIÓN: Revisa esta variable
-# ==========================================
-DISCO="/dev/sdb"  # Cambia esto si tu disco secundario tiene otro nombre
+DISCO="/dev/sdb"
 export LFS="/mnt/lfs"
 
-echo "=== FASE 1.1: Instalando dependencias y reconfigurando dash ==="
+# === SISTEMA ANTI-BLOQUEOS ===
+# Si el disco se quedó montado por un error previo, lo desmontamos primero
+echo "Comprobando bloqueos previos del disco..."
+umount $LFS 2>/dev/null || true
+umount ${DISCO}1 2>/dev/null || true
+
+echo "=== FASE 1.1: Instalando dependencias ==="
 apt update && apt upgrade -y
 apt install -y build-essential bison gawk texinfo python3 wget m4 flex \
   libncurses-dev bc libelf-dev libssl-dev dwarves zstd curl git coreutils \
@@ -30,17 +31,18 @@ parted -s $DISCO mklabel msdos
 parted -s $DISCO mkpart primary ext4 0% 100%
 mkfs.ext4 -L LFS-SYSTEM ${DISCO}1
 mkdir -pv $LFS
-# Evita error si la partición ya estuviera montada de un intento anterior
-mountpoint -q $LFS || mount -v -t ext4 ${DISCO}1 $LFS
+mount -v -t ext4 ${DISCO}1 $LFS
 
 echo "=== FASE 1.3: Recolección de Fuentes y Estructura LFS ==="
 mkdir -vp $LFS/sources
 chmod -v a+wt $LFS/sources
 
 cd $LFS/sources
+
+# DESCARGAS CORREGIDAS (Sin el -sysv)
 wget https://www.linuxfromscratch.org/lfs/downloads/12.1/wget-list
 wget https://www.linuxfromscratch.org/lfs/downloads/12.1/md5sums
-wget --input-file=wget-list-sysv --continue --directory-prefix=$LFS/sources
+wget --input-file=wget-list --continue --directory-prefix=$LFS/sources
 
 echo "Verificando integridad de las descargas (MD5)..."
 md5sum -c md5sums
@@ -57,7 +59,6 @@ case $(uname -m) in
 esac
 
 echo "=== FASE 1.4: Configuración del usuario 'lfs' y aislamiento ==="
-# Creamos el grupo y usuario (si no existen ya)
 getent group lfs >/dev/null || groupadd lfs
 id -u lfs >/dev/null 2>&1 || useradd -s /bin/bash -g lfs -m -k /dev/null lfs
 

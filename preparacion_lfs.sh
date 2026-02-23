@@ -38,7 +38,7 @@ mkdir -vp $LFS/sources
 chmod -v a+wt $LFS/sources
 
 cd $LFS/sources
-wget https://www.linuxfromscratch.org/lfs/downloads/12.1/wget-list-sysv
+wget https://www.linuxfromscratch.org/lfs/downloads/12.1/wget-list
 wget https://www.linuxfromscratch.org/lfs/downloads/12.1/md5sums
 wget --input-file=wget-list-sysv --continue --directory-prefix=$LFS/sources
 

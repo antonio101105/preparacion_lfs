@@ -1,12 +1,9 @@
 #!/bin/bash
-# Remate final de la Fase 2 - VERSIÓN BLINDADA Y CORREGIDA
+# Remate final de la Fase 2 - EL PARCHE NUCLEAR
 set -e
 
 if [ "$(whoami)" != "lfs" ]; then echo "❌ Ejecuta como 'lfs'"; exit 1; fi
 
-# ==========================================
-# VARIABLES OBLIGATORIAS (La cura al problema)
-# ==========================================
 export LFS=/mnt/lfs
 export LFS_TGT=$(uname -m)-lfs-linux-gnu
 export PATH=$LFS/tools/bin:/bin:/usr/bin:/sbin:/usr/sbin
@@ -14,23 +11,19 @@ export MAKEFLAGS="-j$(nproc)"
 
 cd $LFS/sources
 
-echo ">>> [1/4] Reparando límites del compilador en la ruta EXACTA..."
+echo ">>> [1/4] Aplicando parche NUCLEAR a los límites de GCC..."
 rm -rf gcc-13.2.0 2>/dev/null || true
 tar -xf gcc-13.2.0.tar.xz
 
-# Ahora sí buscará en la carpeta real (ej: /mnt/lfs/tools/lib/gcc/i686-lfs-linux-gnu/...)
-DIR_GCC=$(dirname $($LFS_TGT-gcc -print-libgcc-file-name))
-echo "Aplicando parche en: $DIR_GCC"
-
-mkdir -pv $DIR_GCC/install-tools/include
-mkdir -pv $DIR_GCC/include-fixed
-
-cat gcc-13.2.0/gcc/limitx.h gcc-13.2.0/gcc/glimits.h gcc-13.2.0/gcc/limity.h > $DIR_GCC/install-tools/include/limits.h
-cat gcc-13.2.0/gcc/limitx.h gcc-13.2.0/gcc/glimits.h gcc-13.2.0/gcc/limity.h > $DIR_GCC/include-fixed/limits.h
+# Rastrear y destruir: Encontramos todos los limits.h del compilador y los parcheamos
+find $LFS/tools/lib/gcc -name "limits.h" | while read -r archivo_limite; do
+    echo " ---> Forzando parche en: $archivo_limite"
+    cat gcc-13.2.0/gcc/limitx.h gcc-13.2.0/gcc/glimits.h gcc-13.2.0/gcc/limity.h > "$archivo_limite"
+done
 
 rm -rf gcc-13.2.0
 
-echo ">>> [2/4] Compilando Coreutils (ls, mkdir, cat)..."
+echo ">>> [2/4] Reintentando Coreutils (Tercer asalto)..."
 rm -rf coreutils-9.4 2>/dev/null || true
 tar -xf coreutils-9.4.tar.xz
 cd coreutils-9.4

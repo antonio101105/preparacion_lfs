@@ -1,7 +1,7 @@
 #!/bin/bash
-# Fase 2 - Parte 2: Herramientas Base y Pase 2 de Compiladores (LFS 12.1)
+# Fase 2 - Parte 2: Herramientas Base y Pase 2 de Compiladores (LFS 12.1) - CORREGIDO
 
-set -e # Detener si hay cualquier error
+set -e
 
 if [ "$(whoami)" != "lfs" ]; then
   echo "❌ Error: ¡Este script DEBE ejecutarse como el usuario 'lfs'!"
@@ -11,6 +11,9 @@ fi
 cd $LFS/sources
 echo "🚀 INICIANDO FASE 2 (PARTE 2): HERRAMIENTAS TEMPORALES Y PASE 2"
 
+# Limpieza del intento fallido anterior
+rm -rf ncurses-6.4-20230520 2>/dev/null || true
+
 # ==========================================
 # 2.6. Herramientas Base Temporales Complejas
 # ==========================================
@@ -18,9 +21,11 @@ echo ">>> [1/5] Compilando Ncurses (Librería de terminal)..."
 tar -xf ncurses-6.4-20230520.tar.xz
 cd ncurses-6.4-20230520
 sed -i s/mawk// configure
-mkdir build && pushd build
+mkdir build
+pushd build
   ../configure
-  make tic -j$(nproc)
+  make -C include
+  make -C progs tic
 popd
 ./configure --prefix=/usr --host=$LFS_TGT --build=$(./config.guess) \
             --mandir=/usr/share/man --with-manpage-format=normal \

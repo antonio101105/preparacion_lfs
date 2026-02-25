@@ -1,64 +1,100 @@
-# 1. Asegurarnos de estar en tu carpeta de usuario
-cd /root
-
-# 2. Crear el script de continuación
-cat << 'EOF' > continuar_lfs.sh
 #!/bin/bash
 set -e
-export LFS="/mnt/lfs"
 
-echo "=== REANUDANDO FASE 1.3: Cambiando servidor y descargando ==="
+# Asegurarnos de que estamos en la carpeta de fuentes
 cd $LFS/sources
 
-# Cambiamos las URLs del servidor caído por el mirror oficial de Kernel.org
-sed -i 's|https://ftp.gnu.org/gnu|https://mirrors.kernel.org/gnu|g' wget-list
+echo "🚀 Iniciando Construcción del Toolchain (i686)..."
 
-# Continuamos la descarga justo donde se quedó
-wget --input-file=wget-list --continue
+# --- 1. BINUTILS (Pase 1) ---
+echo ">>> Compilando Binutils (Pase 1)..."
+tar -xf binutils-2.42.tar.xz
+cd binutils-2.42
+mkdir -v build && cd build
+../configure --prefix=$LFS/tools \
+             --with-sysroot=$LFS \
+             --target=$LFS_TGT   \
+             --disable-nls       \
+             --disable-werror
+make
+make install
+cd $LFS/sources
+rm -rf binutils-2.42
 
-echo "Verificando integridad de todas las descargas..."
-md5sum -c md5sums
+# --- 2. GCC (Pase 1) ---
+echo ">>> Compilando GCC (Pase 1)..."
+tar -xf gcc-13.2.0.tar.xz
+cd gcc-13.2.0
+# Descomprimir dependencias internas de GCC
+tar -xf ../mpfr-4.2.1.tar.xz && mv -v mpfr-4.2.1 mpfr
+tar -xf ../gmp-6.3.0.tar.xz && mv -v gmp-6.3.0 gmp
+tar -xf ../mpc-1.3.1.tar.gz && mv -v mpc-1.3.1 mpc
 
-echo "=== FASE 1.4: Configuración de usuario lfs ==="
-mkdir -pv $LFS/{etc,var,tools}
-mkdir -pv $LFS/usr/{bin,lib,sbin}
-for i in bin lib sbin; do [ ! -e $LFS/$i ] && ln -sv usr/$i $LFS/$i; done
-case $(uname -m) in x86_64) mkdir -pv $LFS/lib64 ;; esac
+mkdir -v build && cd build
+../configure                  \
+    --target=$LFS_TGT         \
+    --prefix=$LFS/tools       \
+    --with-glibc-version=2.39 \
+    --with-sysroot=$LFS       \
+    --with-newlib             \
+    --without-headers         \
+    --disable-nls             \
+    --disable-shared          \
+    --disable-multilib        \
+    --disable-threads         \
+    --disable-libatomic       \
+    --disable-libgomp         \
+    --disable-libquadmath     \
+    --disable-libssp          \
+    --disable-libvtv          \
+    --disable-libstdcxx       \
+    --enable-languages=c,c++
+make
+make install
+cd $LFS/sources
+rm -rf gcc-13.2.0
 
-getent group lfs >/dev/null || groupadd lfs
-id -u lfs >/dev/null 2>&1 || useradd -s /bin/bash -g lfs -m -k /dev/null lfs
+# --- 3. LINUX API HEADERS ---
+echo ">>> Instalando Linux API Headers..."
+tar -xf linux-6.7.4.tar.xz
+cd linux-6.7.4
+make mrproper
+make headers
+find usr/include -type f ! -name '*.h' -delete
+cp -rv usr/include $LFS/usr
+cd $LFS/sources
+rm -rf linux-6.7.4
 
-echo "---------------------------------------------------------"
-echo "🔑 Introduce una contraseña para el usuario lfs:"
-passwd lfs
+# --- 4. GLIBC ---
+echo ">>> Compilando Glibc..."
+tar -xf glibc-2.39.tar.xz
+cd glibc-2.39
+patch -Np1 -i ../glibc-2.39-fhs-1.patch
+mkdir -v build && cd build
+echo "rootsbindir=/usr/sbin" > configparms
+../configure                             \
+      --prefix=/usr                      \
+      --host=$LFS_TGT                    \
+      --build=$(../scripts/config.guess) \
+      --enable-kernel=4.19               \
+      --with-headers=$LFS/usr/include    \
+      libc_cv_slibdir=/usr/lib
+make
+make DESTDIR=$LFS install
+# Arreglar un enlace duro que a veces falla en Glibc
+sed '/"export_dir"/a \ \ \ \ \ \ \ \ "dir": "/var/cache/nscd"' -i $LFS/usr/share/nscd/nscd.stat
+cd $LFS/sources
+rm -rf glibc-2.39
 
-chown -v lfs $LFS/{usr{,/*},lib,var,etc,bin,sbin,tools}
-chown -v lfs $LFS/sources
-case $(uname -m) in x86_64) chown -v lfs $LFS/lib64 ;; esac
+# --- 5. EL PARCHE NUCLEAR (Prevención MB_LEN_MAX) ---
+echo ">>> Aplicando el Parche Nuclear de límites a GCC..."
+tar -xf gcc-13.2.0.tar.xz
+find $LFS/tools/lib/gcc -name "limits.h" | while read -r f; do
+    echo " ---> Forzando parche en: $f"
+    cat gcc-13.2.0/gcc/limitx.h gcc-13.2.0/gcc/glimits.h gcc-13.2.0/gcc/limity.h > "$f"
+done
+rm -rf gcc-13.2.0
 
-tee /home/lfs/.bash_profile > /dev/null << "INNER_EOF"
-exec env -i HOME=$HOME TERM=$TERM PS1='\u:\w\$ ' /bin/bash
-INNER_EOF
-
-tee /home/lfs/.bashrc > /dev/null << "INNER_EOF"
-set +h
-umask 022
-LFS=/mnt/lfs
-LC_ALL=POSIX
-LFS_TGT=$(uname -m)-lfs-linux-gnu
-PATH=/usr/bin
-if [ ! -L /bin ]; then PATH=/bin:$PATH; fi
-PATH=$LFS/tools/bin:$PATH
-CONFIG_SITE=$LFS/usr/share/config.site
-export LFS LC_ALL LFS_TGT PATH CONFIG_SITE MAKEFLAGS="-j$(nproc)"
-INNER_EOF
-chown lfs:lfs /home/lfs/.bash_profile /home/lfs/.bashrc
-
-echo "====================================================="
-echo "✅ ¡FASE 1 COMPLETADA CON ÉXITO!"
-echo "====================================================="
-EOF
-
-# 3. Darle permisos y ejecutarlo
-chmod +x continuar_lfs.sh
-./continuar_lfs.sh
+echo "======================================================="
+echo "✅ TOOLCHAIN (FASE 1) COMPLETADO CON ÉXITO"
+echo "======================================================="
